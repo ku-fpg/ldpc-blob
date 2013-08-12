@@ -9,18 +9,18 @@ import System.Random.MWC
 import Control.Monad.Primitive (PrimMonad, PrimState, unsafePrimToIO)
 
 -- basic structure of an error-checking code
-data ECC m v w = ECC
+data ECC m v w d = ECC
      { generate  ::                        m (v Bool)
      , encode    :: v Bool		-> m (w Bool)
-     , txRx      :: w Bool		-> m (w Double)
-     , decode    :: v Bool -> w Double 	-> m (v Bool)
+     , txRx      :: w Bool		-> m (w d)
+     , decode    :: w d 	        -> m (v Bool)
      , check     :: v Bool -> v Bool    -> m Integer
      , ber       :: Integer -> Integer  -> Double               -- ^ given this many frames, and this number of bit errors, what is the BER?
      , debug     :: String              -> m ()
      }
 
 -- returns the number of bits transmitted, and bits recieved intact.
-runECC :: (Monad m) => ECC m v w -> Integer -> m Integer
+runECC :: (Monad m) => ECC m v w d -> Integer -> m Integer
 runECC ecc count = run 0 0
   where
     run !n !errs
@@ -32,7 +32,7 @@ runECC ecc count = run 0 0
         code0     <- generate ecc
         code1     <- encode ecc code0
         rx        <- txRx   ecc code1
-        code2     <- decode ecc code0 rx
+        code2     <- decode ecc rx
         bitErrors <- check  ecc code0 code2
         run (n+1) (errs + bitErrors)
 
@@ -44,8 +44,8 @@ generateList gen sz = sequence [ uniform gen | _ <- [1..sz]]
 encodeId :: (Monad m) => v Bool -> m (v Bool)
 encodeId = return
 
-decodeId :: (Monad m, Functor v) => v Bool -> v Double -> m (v Bool)
-decodeId _ = return . fmap (>= 0)
+decodeId :: (Monad m, Functor v) => v Double -> m (v Bool)
+decodeId = return . fmap (>= 0)
 
 checkList :: (Monad m) => [Bool] -> [Bool] -> m Integer
 checkList xs ys

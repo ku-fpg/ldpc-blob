@@ -40,10 +40,10 @@ mm (ListMatrix m1) (ListMatrix m2)
 
 boolMM :: (a ~ Bool) => ListMatrix a -> ListMatrix a -> ListMatrix a
 boolMM (ListMatrix m1) (ListMatrix m2)
-   | length (head m1) /= length m2 = error "matrixes do not match"
+   | length (head m1) /= length m2 = error $ "matrixes do not match" ++ show (length (head m1), length m2)
    | otherwise = ListMatrix m3
   where
-    m3 = [ [ foldr (/=) False (zipWith (/=) a b) | b <- transpose m2 ] | a <- m1 ]
+    m3 = [ [ foldr (/=) False (zipWith (&&) a b) | b <- transpose m2 ] | a <- m1 ]
 
 identity :: Num a => Int -> ListMatrix a
 identity n = ListMatrix [ [ if x == y then 1 else 0 | x <- [1..n] ] | y <- [1..n]]
