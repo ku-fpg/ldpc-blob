@@ -11,7 +11,7 @@ listMatrix xss
 
   | otherwise = ListMatrix xss
 
-data ListMatrix a = ListMatrix [[a]]
+newtype ListMatrix a = ListMatrix {unListMatrix :: [[a]]}
   deriving (Eq, Ord)
 
 instance Functor ListMatrix where
