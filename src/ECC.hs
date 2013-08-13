@@ -13,7 +13,7 @@ data ECC m v w d = ECC
      { generate  ::                        m (v Bool)
      , encode    :: v Bool		-> m (w Bool)
      , txRx      :: w Bool		-> m (w d)
-     , decode    :: w d 	        -> m (v Bool)
+     , decode    :: v d 	        -> m (v Bool)
      , check     :: v Bool -> v Bool    -> m Integer
      , ber       :: Integer -> Integer  -> Double               -- ^ given this many frames, and this number of bit errors, what is the BER?
      , debug     :: String              -> m ()
