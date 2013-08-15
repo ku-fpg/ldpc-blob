@@ -7,30 +7,19 @@ import Haskell.ArraySig
 
 import Data.Array.Base (IArray(..),listArray,amap,elems)
 import Data.Array.Base (thaw,unsafeFreeze)
-import Data.Array.Unboxed (UArray,(!),Ix(..))
+import Data.Array.Unboxed ((!),Ix(..))
 import Data.Array.ST (STUArray,readArray,writeArray)
 import Control.Monad.ST (ST,runST)
 import Control.Monad (when)
 import Control.Applicative ((<$>),(<*>))
 
-transpose :: IArray UArray a => M a -> M a
-transpose m = listArray (bases,(cTop,rTop)) $ go rBase cBase where
-  (bases@(rBase,cBase),(rTop,cTop)) = bounds m
-
-  -- (this is ripe for fusion with listArray -- I don't know to what extent
-  -- that already happens)
-  go !row !col
-    | col>cTop = []
-    | row>rTop = go rBase (col+1)
-    | otherwise = m!(row,col) : go (row+1) col
-
------
+--import Control.Monad.ST.Unsafe (unsafeIOToST)
 
 type STM s = STUArray s (Int,Int)
 type STV s = STUArray s Int
 
-decoder_mutation :: M Bool -> V Double -> (Int,V Bool)
-decoder_mutation h lam0
+decoder_mutation :: Int -> M Bool -> V Double -> (Int,V Bool)
+decoder_mutation maxIterations h lam0
   | len /= numCol = error "Haskell.Encode.decoder: bad dimensions"
   | otherwise = runST $ do
     lam <- thaw lam0
@@ -41,12 +30,16 @@ decoder_mutation h lam0
       putStrLn ""
     n <- go 0 lam eta
     -- unsafeFreeze is safe because lam dies
-    (,) n . amap (>0) <$> unsafeFreeze lam where
+    (,) n . amap (>0) . trim <$> unsafeFreeze lam where
 
   !len = rangeSize lamBounds
   lamBounds@(lamBase,_) = bounds lam0
   !numCol = rangeSize (cBase,cTop)
+  !numRow = rangeSize (rBase,rTop)
   hBounds@((rBase,cBase),(rTop,cTop)) = bounds h
+
+  trim :: V Double -> V Double
+  trim = listArray (1,numCol-numRow) . elems
 
   forEta :: Monad m => (Int -> Int -> m ()) -> m ()
   forEta f = mapM_ (\idx -> when (h!idx) $ uncurry f idx) $ range hBounds
@@ -56,6 +49,9 @@ decoder_mutation h lam0
 
   forEtaCol :: Monad m => Int -> (Int -> m ()) -> m ()
   forEtaCol row f = mapM_ (\col -> when (h!(row,col)) $ f col) $ range (cBase,cTop)
+
+  forEtaCol' :: Monad m => Int -> (Int -> Bool -> m ()) -> m ()
+  forEtaCol' row f = mapM_ (\col -> f col (h!(row,col))) $ range (cBase,cTop)
 
   foldlEtaCol :: Monad m => acc -> Int -> (acc -> Int -> m acc) -> m acc
   foldlEtaCol z row f = go (range (cBase,cTop)) z where
@@ -70,15 +66,21 @@ decoder_mutation h lam0
   forLamCol :: Monad m => (Int -> m ()) -> m ()
   forLamCol f = mapM_ f (range lamBounds)
 
+  rnd :: Double -> Double
+  rnd d = fromIntegral (round (d * 1000.0) :: Int) / 1000.0
+  putStr7 s = putStr $ if len < 7 then replicate (7 - len) ' ' ++ s else s
+    where len = length s
+
   go :: Int -> STV s Double -> STM s Double -> ST s Int
-  go !n !lam !eta = do
+  go !n !lam !eta = if n >= maxIterations then return n else do
     debug $ putStrLn "---"
 
     forEtaRow $ \row -> do
-      debug $ putStr "eta row "
-      forEtaCol row $ \col -> readArray eta (row,col) >>= \x -> debug $ putStr (show x) >> putStr " "
+      debug $ putStr "eta "
+      forEtaCol' row $ \col enabled ->
+        if not enabled then debug $ putStr7 ""
+        else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
       debug $ putStrLn ""
-
     debug $ putStr "lam "
     forLamCol $ \col -> readArray lam col >>= \x -> debug $ putStr (show x) >> putStr " "
     debug $ putStrLn ""
@@ -91,16 +93,12 @@ decoder_mutation h lam0
     forLamCol $ \col -> writeArray lam col $ lam0!col
 
     forEtaRow $ \row -> do
-
-
-
-   -- this is the fancy way: take the whole row's min_dagger, then tweak it at
-   -- each element
-
-      let snoc (sign,md) x = (sign * signum x,minMD md $ abs x)
+      -- this is the clever way: take the whole row's min_dagger, then tweak it
+      -- at each element
 
       -- collect the minimum and the next-most minimum in the whole row
       (sign,TwoMD the_min the_2nd_min) <- do
+        let snoc (sign,md) x = (sign * signum x,minMD md $ abs x)
         foldlEtaCol (1,ZeroMD) row $ \mins col -> snoc mins <$> readArray eta (row,col)
 
       debug $ print (sign,the_min,the_2nd_min)
@@ -114,11 +112,8 @@ decoder_mutation h lam0
                     then the_2nd_min else the_min
         writeArray eta (row,col) etav'
 
-
-
-
-{- -- this, on the other hand, is the straight-forward way. (We might optimize
-   -- to add the_mins array as a loop argument
+{-    -- this, on the other hand, is the straight-forward way. (We might
+      -- optimize to add the_mins array as a loop argument)
 
       the_mins <- newArray (cBase,cTop) 0
 
@@ -141,8 +136,10 @@ decoder_mutation h lam0
         let lamv' = lamv+etav'
         writeArray lam (col-cBase+lamBase) lamv'
 
-      debug $ putStr "eta' row "
-      forEtaCol row $ \col -> readArray eta (row,col) >>= \x -> debug $ putStr (show x) >> putStr " "
+      debug $ putStr "eta' "
+      forEtaCol' row $ \col enabled ->
+        if not enabled then debug $ putStr7 ""
+        else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
       debug $ putStrLn ""
 
     -- unsafeFreeze is safe because lam' doesn't survive this iteration

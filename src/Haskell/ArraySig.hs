@@ -68,3 +68,15 @@ multVM v m
                       !o2 = m!(row,col)
                       !s  = multE o1 o2
                   in go (iv+1) (row+1) col (addE acc s)
+
+transpose :: IArray UArray a => M a -> M a
+transpose m = listArray (swap bases,swap tops) $ go rBase cBase where
+  swap (x,y) = (y,x)
+  (bases@(rBase,cBase),tops@(rTop,cTop)) = bounds m
+
+  -- (this is ripe for fusion with listArray -- I don't know to what extent
+  -- that already happens)
+  go !row !col
+    | col>cTop = []
+    | row>rTop = go rBase (col+1)
+    | otherwise = m!(row,col) : go (row+1) col
