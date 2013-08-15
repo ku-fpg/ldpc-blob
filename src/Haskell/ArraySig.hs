@@ -63,7 +63,7 @@ multVM v m
   -- (this is ripe for fusion with listArray -- I don't know to what extent
   -- that already happens)
   go !iv !row !col !acc
-    | row==rTop = acc : if col==cTop then [] else go vBase rBase (col+1) zeroE
+    | row>rTop = acc : if col==cTop then [] else go vBase rBase (col+1) zeroE
     | otherwise = let !o1 = v!iv
                       !o2 = m!(row,col)
                       !s  = multE o1 o2

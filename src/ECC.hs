@@ -4,23 +4,27 @@ module ECC where
 
 import System.Random.MWC
 import Control.Monad.Primitive (PrimMonad, PrimState)
+import Control.Monad.Trans (MonadIO(liftIO))
+
+type FrameSize = Int
 
 -- basic structure of an error-checking code
-data ECC m v w d = ECC
+data ECC m v w d x = ECC
      { generate  ::                        m (v Bool)
      , encode    :: v Bool		-> m (w Bool)
      , txRx      :: w Bool		-> m (w d)
-     , decode    :: w d 	        -> m (Int,v Bool) -- ^ (#iterations,result)
+     , decode    :: w d 	        -> m (x,v Bool) -- ^ (extra info,result)
      , check     :: v Bool -> v Bool    -> m Int
      , ber       :: Integer -> Integer  -> Double               -- ^ given this many frames, and this number of bit errors, what is the BER?
      , debug     :: String              -> m ()
+     , showX     :: x -> Maybe String
      , showV     :: v Bool -> String
      , showW     :: w d -> String
      , showWBool :: w Bool -> String
      }
 
 -- returns the number of bits transmitted, and bits recieved intact.
-runECC :: (Monad m) => ECC m v w d -> Integer -> m Integer
+runECC :: Monad m => ECC m v w d x -> Integer -> m Integer
 runECC ecc count = run 0 0
   where
     run !n !errs
@@ -37,8 +41,10 @@ runECC ecc count = run 0 0
         debug ecc $ showWBool ecc code1
 
         rx        <- txRx ecc code1
-        (iterations,code2)     <- decode ecc rx
-        debug ecc $ "decode iterations " ++ show iterations
+        debug ecc $ showW ecc rx
+
+        (extra_info,code2)     <- decode ecc rx
+        maybe (return ()) (debug ecc) $ showX ecc extra_info
         debug ecc $ showV ecc code2
 
         bitErrors <- check ecc code0 code2
@@ -52,8 +58,8 @@ generateList gen sz = sequence [ uniform gen | _ <- [1..sz]]
 encodeId :: (Monad m) => v Bool -> m (v Bool)
 encodeId = return
 
-decodeId :: (Monad m, Functor v) => v Double -> m (Int,v Bool)
-decodeId = return . (,) 0 . fmap (>= 0)
+decodeId :: (Monad m, Functor v) => v Double -> m ((),v Bool)
+decodeId = return . (,) () . fmap (>= 0)
 
 checkList :: (Monad m) => [Bool] -> [Bool] -> m Int
 checkList xs ys
@@ -68,6 +74,9 @@ berForFramesize :: Int -> (Integer -> Integer -> Double)
 berForFramesize frameSize frames bitErrors =
   fromIntegral bitErrors / (fromIntegral frameSize * fromIntegral frames)
 
+mkECCId ::
+  (PrimMonad m, MonadIO m) =>
+  Int -> m (ECC m [] [] Double ())
 mkECCId frameSize = create >>= \gen -> return $ ECC
   { generate = generateList gen frameSize
   , encode = encodeId
@@ -75,7 +84,8 @@ mkECCId frameSize = create >>= \gen -> return $ ECC
   , decode = decodeId
   , check = checkList
   , ber = berForFramesize frameSize
-  , debug = putStrLn
+  , debug = liftIO . putStrLn
+  , showX = const Nothing
   , showV = show
   , showW = show
   , showWBool = show
@@ -84,8 +94,9 @@ mkECCId frameSize = create >>= \gen -> return $ ECC
 main :: IO ()
 main = mainWith (mkECCId 32)
 
+mainWith :: MonadIO m => m (ECC m v w d x) -> m ()
 mainWith mkECC = do
-        let frames = 100
-        ecc <- mkECC
-        errs <- runECC ecc frames
-        print $ "BER = " ++ show (ber ecc frames errs)
+  let frames = 100
+  ecc <- mkECC
+  errs <- runECC ecc frames
+  liftIO $ print $ "BER = " ++ show (ber ecc frames errs)

@@ -38,6 +38,8 @@ decoder_mutation maxIterations h lam0
   !numRow = rangeSize (rBase,rTop)
   hBounds@((rBase,cBase),(rTop,cTop)) = bounds h
 
+  -- numRow is the number of extra parity bits, so drop that many from the
+  -- result vector
   trim :: V Double -> V Double
   trim = listArray (1,numCol-numRow) . elems
 
@@ -68,30 +70,41 @@ decoder_mutation maxIterations h lam0
 
   rnd :: Double -> Double
   rnd d = fromIntegral (round (d * 1000.0) :: Int) / 1000.0
-  putStr7 s = putStr $ if len < 7 then replicate (7 - len) ' ' ++ s else s
-    where len = length s
+  putStr7 "" = putStr "       "
+  putStr7 s = pad $ let (pre,post) = break (=='.') s in
+    pre ++ if null post then "    " else take 4 post
+    where
+      pad t = putStr $ if len < 7 then replicate (7 - len) ' ' ++ t else t
+        where len = length t
+
+  dumpEta eta s row = (debug (putStr s >> putStr " ") >>) $ (>> debug (putStrLn "")) $
+    forEtaCol' row $ \col enabled ->
+      if not enabled then debug $ putStr7 "" >> putStr " "
+      else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
 
   go :: Int -> STV s Double -> STM s Double -> ST s Int
   go !n !lam !eta = if n >= maxIterations then return n else do
     debug $ putStrLn "---"
 
-    forEtaRow $ \row -> do
-      debug $ putStr "eta "
-      forEtaCol' row $ \col enabled ->
-        if not enabled then debug $ putStr7 ""
-        else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
-      debug $ putStrLn ""
     debug $ putStr "lam "
-    forLamCol $ \col -> readArray lam col >>= \x -> debug $ putStr (show x) >> putStr " "
+    forLamCol $ \col -> readArray lam col >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
     debug $ putStrLn ""
+    debug $ putStrLn ""
+    forEtaRow $ dumpEta eta "eta"
 
     -- eta[r,c] := eta[r,c] - lam[c]
     forEta $ \row col -> (>>= writeArray eta (row,col)) $
                          (-) <$> readArray eta (row,col) <*> readArray lam (col-cBase+lamBase)
 
+    debug $ putStrLn ""
+    debug $ putStrLn ""
+    forEtaRow $ dumpEta eta "e-l"
+
     -- lam[c] := lam0[c]   -- is there a bulk operation for this?
     forLamCol $ \col -> writeArray lam col $ lam0!col
 
+    -- eta[r,c] := min_dagger(eta[r,forall d. d /= c])
+    -- lam[c]   := lam[c] + sum(eta[forall r. r,c])
     forEtaRow $ \row -> do
       -- this is the clever way: take the whole row's min_dagger, then tweak it
       -- at each element
@@ -103,8 +116,6 @@ decoder_mutation maxIterations h lam0
 
       debug $ print (sign,the_min,the_2nd_min)
 
-      -- eta[r,c] := min_dagger(eta[r,forall d. d /= c])
-      -- lam[c]   := lam[c] + sum(eta[forall r. r,c])
       forEtaCol row $ \col -> do
         etav <- readArray eta (row,col)
         let etav' = negate $ (0.75*) $ sign * signum etav *
@@ -136,19 +147,15 @@ decoder_mutation maxIterations h lam0
         let lamv' = lamv+etav'
         writeArray lam (col-cBase+lamBase) lamv'
 
-      debug $ putStr "eta' "
-      forEtaCol' row $ \col enabled ->
-        if not enabled then debug $ putStr7 ""
-        else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
-      debug $ putStrLn ""
+--      dumpEta eta "eta'" row
 
     -- unsafeFreeze is safe because lam' doesn't survive this iteration
     parity <- unsafeFreeze lam >>= \lam' -> do
       let cHat = amap (>0) lam'
       let x = multVM cHat (transpose h)
-      debug $ putStr "cHat " >> print (elems cHat)
-      debug $ putStr "x    " >> print (elems x)
-      debug $ putStr "lam  " >> print (elems $ lam' `asTypeOf` lam0)
+--      debug $ putStr "cHat " >> print (elems cHat)
+--      debug $ putStr "x    " >> print (elems x)
+--      debug $ putStr "lam  " >> print (elems $ lam' `asTypeOf` lam0)
       return $ x == listArray (rBase,rTop) (repeat False)
     if parity then return n else go (n+1) lam eta
 
