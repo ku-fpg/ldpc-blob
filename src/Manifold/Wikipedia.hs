@@ -1,15 +1,15 @@
-module Manifest.Wikipedia (ecc) where
+module Manifold.Wikipedia where
 
-import Data.ListMatrix
-import Codes.Wikipedia
-import Haskell.Encode
+--import Data.ListMatrix
+--import Codes.Wikipedia
+--import Haskell.Encode
 import ECC
 
-genECC :: Monad m => IO (ECC m [] [])
-genECC = ECC
+genECC :: Monad m => IO (ECC m [] [] Double ())
+genECC = error "Manifold.Wikipedia.genECC is not quite ready yet"
+{-ECC
     { encode = return . encoder g_6_3
     }
-{-
         let frameSize = 32
         let frames = 100
         gen <- create
