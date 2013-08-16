@@ -38,5 +38,5 @@ getSigma2 ebnoDB = ((1/10) ** (ebnoDB/10)) / 2
 --getLC ec sigma2 = 2 * sqrt(ec) / sigma2
 
 antip :: Bool -> Double
-antip  bval | bval = -1.0
-            | otherwise =  1.0
+antip  bval | bval = 1.0
+            | otherwise =  -1.0

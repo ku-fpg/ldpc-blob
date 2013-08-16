@@ -4,7 +4,6 @@ module ECC where
 
 import System.Random.MWC
 import Control.Monad.Primitive (PrimMonad, PrimState)
-import Control.Monad (when)
 import Control.Monad.Trans (MonadIO(liftIO))
 
 type FrameSize = Int
@@ -23,6 +22,9 @@ data ECC m v w d x = ECC
      , showW     :: w d -> String
      , showWBool :: w Bool -> String
      }
+
+noDebug :: Monad m => String -> m ()
+noDebug _ = return ()
 
 -- returns the number of bits transmitted, and bits recieved intact.
 runECC :: Monad m => ECC m v w d x -> Integer -> m Integer

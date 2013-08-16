@@ -59,5 +59,5 @@ ecc_mutation maxIterations h g noisyness untxBits =
         punc_size = numCols
 
 main :: IO ()
-main = mainWith $ ecc_mutation 20 (fromListMatrix Codes.ICFP_Paper.h_4096_7168) Codes.ICFP_Paper.g_4096_7168 Nothing 1024
+main = mainWith $ (\ecc -> ecc{debug=noDebug}) `fmap` ecc_mutation 20 (fromListMatrix Codes.ICFP_Paper.h_4096_7168) Codes.ICFP_Paper.g_4096_7168 (Just 3) 0
 --main = mainWith $ ecc_mutation 20 (fromListMatrix Codes.ICFP_Paper.h_7_20) (fromListMatrix Codes.ICFP_Paper.g_7_20) (Just 4) 0

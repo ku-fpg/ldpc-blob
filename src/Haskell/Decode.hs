@@ -86,7 +86,23 @@ decoder_mutation maxIterations h lam0
       else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
 -}
   go :: Int -> STV s Double -> STM s Double -> ST s Int
-  go !n !lam !eta = if n >= maxIterations then return n else do
+  go !n !lam !eta
+    | n >= maxIterations = return n
+    | otherwise = do
+     -- unsafeFreeze is safe because lam' doesn't survive this iteration
+    parity <- unsafeFreeze lam >>= \lam' -> do
+      let cHat = amap (>0) lam'
+      let x = multMV "decode" h cHat
+--      unsafeIOToST $ putStr "cHat " >> showV cHat
+--      unsafeIOToST $ putStr "x   " >> showV x
+      unsafeIOToST $ print $ let es = elems x in (length es,length (filter id es))
+      return $ not $ or $ elems x -- x is all zeroes
+
+    if parity then return n else go' n lam eta
+
+  {-# INLINE go' #-} -- we want a directly recursive go
+  go' :: Int -> STV s Double -> STM s Double -> ST s Int
+  go' !n !lam !eta = do
 --    unsafeIOToST $ putStr "iteration " >> print n
 
     -- eta[r,c] := eta[r,c] - lam[c]
@@ -104,15 +120,19 @@ decoder_mutation maxIterations h lam0
 
       -- collect the minimum and the next-most minimum in the whole row
       -- NB assumes each row of eta & h has at least two ones
-      (sign,TwoMD the_min the_2nd_min) <- do
-        let snoc (sign,md) x = (sign * signum x,minMD md $ abs x)
+      (minSign,TwoMD the_min the_2nd_min) <- do
+        let snoc (!sign,!md) !x = (sign * signum x,minMD md $ abs x)
         foldlEtaCol (1,ZeroMD) row $ \mins col -> snoc mins <$> readArray eta (row,col)
 
       forEtaCol row $ \col -> do
         etav <- readArray eta (row,col)
-        let etav' = negate $ (0.75*) $ sign * signum etav *
-                    if abs etav == the_min -- dubious use of (==) Double
-                    then the_2nd_min else the_min
+        -- sinblingMin is the min_dagger of this element's same-row
+        -- siblings. We recover it from the whole row's TwoMD value by
+        -- "subtracting" this element.
+        let siblingMin = minSign * signum etav *
+              if abs etav == the_min -- dubious use of (==) Double
+              then the_2nd_min else the_min
+            etav' = negate $ 0.75*siblingMin
         writeArray eta (row,col) etav'
 
 {-
@@ -136,15 +156,7 @@ decoder_mutation maxIterations h lam0
         -- add the new eta value to lam
         updateArray lam (colEtaToLam col) $ return . (+etav')
 
-    -- unsafeFreeze is safe because lam' doesn't survive this iteration
-    parity <- unsafeFreeze lam >>= \lam' -> do
-      let cHat = amap (>0) lam'
-      let x = multMV "decode" h cHat
---      unsafeIOToST $ putStr "cHat " >> showV cHat
---      unsafeIOToST $ putStr "x   " >> showV x
-      unsafeIOToST $ print $ let es = elems x in (length es,length (filter id es))
-      return $ not $ or $ elems x -- x is all zeroes
-    if parity then return n else go (n+1) lam eta
+    go (n+1) lam eta
 
 --  showV = putStrLn . map (\b -> if b then '1' else '0') . elems
 
