@@ -2,10 +2,20 @@
 
 module Codes.ICFP_Paper where
 
+import Haskell.ArraySig (M)
 import Data.Sized.Fin
 import Data.ListMatrix
 
+import System.Directory (doesFileExist)
+import Codec.Compression.BZip (decompress)
+import qualified Data.ByteString.Lazy as L
+
+import Data.List (intercalate)
+import Control.Arrow (second)
+
 import GHC.TypeLits
+
+import Data.Binary (decode)
 
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -13,21 +23,19 @@ h_4096_7168 :: ListMatrix Bool
 h_4096_7168 = expand h_4096_7168_compact
 
 -- this g has a lot more ones in it than h does
-g_4096_7168 :: ListMatrix Bool
-g_4096_7168 = ListMatrix $ map (go 1) ones where
-  ones :: [[Int]]
-  ones = unsafePerformIO $ do
-    x <- (map (map read . words) . lines) `fmap` readFile "Codes/G.ones"
-    let go1 [] = ()
-        go1 (x:xs) = x `seq` go1 xs
-        go2 [] = ()
-        go2 (x:xs) = go1 x `seq` go2 xs
-    go2 x `seq` putStrLn "Done reading g"
-    return x
-
-  go i [] = replicate (7169 - i) False
-  go i s@(one:ones) = hit : go (i+1) (if hit then ones else s)
-    where hit = i == one
+g_4096_7168 :: M Bool
+g_4096_7168 =
+  -- prefer loading from the decompressed version
+  let srcs = concatMap (\(f,p) -> [(f,p),(f,"src/"++p)]) $
+             map (second ("Codes/"++)) $
+             [(id,"g_4096_7168.bin")
+             ,(decompress,"g_4096_7168.bin.bz2")
+             ]
+      go [] = error $ "hacky load of g_4096_7168 failed, could find none of " ++ intercalate " " (map snd srcs)
+      go ((f,path):srcs) = doesFileExist path >>= \b -> if b
+        then (decode.f) `fmap` L.readFile path
+        else go srcs
+  in unsafePerformIO $ go srcs
 
 h_4096_7168_compact :: ListMatrix (Maybe (Fin 256))
 h_4096_7168_compact = fmap cleanup $ listMatrix

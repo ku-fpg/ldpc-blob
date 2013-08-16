@@ -43,7 +43,13 @@ instance Zero Double        where zeroE = 0
 {-# SPECIALISE multVM :: String -> V Bool   -> M Bool   -> V Bool   #-}
 {-# SPECIALISE multVM :: String -> V Double -> M Double -> V Double #-}
 
--- | Multiply vector by a matrix.
+-- | Left-multiply vector by a matrix.
+multMV :: (IArray UArray a,IArray UArray b,IArray UArray c
+          ,Mult b a,Add (Mult_Result b a) c,Zero c) =>
+  String -> M a -> V b -> V c
+multMV s m v = multVM s v (transpose m) -- inefficient implementation for now...
+
+-- | Right-multiply vector by a matrix.
 multVM :: (IArray UArray a,IArray UArray b,IArray UArray c
           ,Mult a b,Add (Mult_Result a b) c,Zero c) =>
   String -> V a -> M b -> V c

@@ -18,12 +18,12 @@ import Control.Monad.Trans (MonadIO(..))
 import Control.Applicative ((<$>))
 
 ecc_mutation :: (Functor m,PrimMonad m,MonadIO m) =>
-  Int -> M Bool -> M Bool -> Noisyness -> m (ECC m V V Double Int)
-ecc_mutation maxIterations h g noisyness =
+  Int -> M Bool -> M Bool -> Noisyness -> Int -> m (ECC m V V Double Int)
+ecc_mutation maxIterations h g noisyness untxBits =
   create >>= \gen -> return $ ECC
   { generate = listArray (1,originalBits) <$> generateList gen originalBits
   , encode = return . encoder g
-    -- do not tx all of the parity bits
+    -- do not transmit untxBits parity bits
   , txRx = fmap (listArray (1,allBits))
          . fmap (++ replicate untxBits 0.0)
          . addNoise gen rate noisyness
@@ -42,25 +42,22 @@ ecc_mutation maxIterations h g noisyness =
         -- for, but it looks like it's the full width of the received data
         rate = (fromIntegral packet_size)/(fromIntegral punc_size)
 
-        numRowsG = rangeSize (rBaseG,rTopG)
-        numColsG = rangeSize (cBaseG,cTopG)
-        ((rBaseG,cBaseG),(rTopG,cTopG)) = bounds g
-
-        numRowsH = rangeSize (rBaseH,rTopH)
-        ((rBaseH,_),(rTopH,_)) = bounds h
+        -- NB do not use h here, it may be truncated
+        ((rBase,cBase),(rTop,cTop)) = bounds g
+        numRows = rangeSize (rBase,rTop)
+        numCols = rangeSize (cBase,cTop)
 
         -- the bits being encoded
-        originalBits = numRowsG
-        parityBits   = numColsG-originalBits
-        allBits = originalBits+parityBits
-
-        untxBits = numRowsG-numRowsH
+        allBits      = numCols
+        originalBits = numRows
+        _parityBits   = allBits-originalBits
 
         -- the number of bits transmitted
-        frameSize = numColsG-untxBits
+        frameSize = allBits-untxBits
 
         packet_size = originalBits
-        punc_size = numColsG
+        punc_size = numCols
 
 main :: IO ()
-main = mainWith $ ecc_mutation 200 (fromListMatrix Codes.ICFP_Paper.h_4096_7168) (fromListMatrix Codes.ICFP_Paper.g_4096_7168) Nothing
+main = mainWith $ ecc_mutation 20 (fromListMatrix Codes.ICFP_Paper.h_4096_7168) Codes.ICFP_Paper.g_4096_7168 Nothing 1024
+--main = mainWith $ ecc_mutation 20 (fromListMatrix Codes.ICFP_Paper.h_7_20) (fromListMatrix Codes.ICFP_Paper.g_7_20) (Just 4) 0

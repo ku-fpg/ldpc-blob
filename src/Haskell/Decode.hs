@@ -5,19 +5,22 @@ module Haskell.Decode where
 
 import Haskell.ArraySig
 
-import Data.Array.Base (IArray(..),listArray,amap,elems)
+import Data.Array.Base (IArray(..),listArray,amap,elems,MArray)
 import Data.Array.Base (thaw,unsafeFreeze)
 import Data.Array.Unboxed ((!),Ix(..))
 import Data.Array.ST (STUArray,readArray,writeArray)
 import Control.Monad.ST (ST,runST)
 
 import Control.Monad (when)
-import Control.Applicative ((<$>),(<*>))
+import Control.Applicative ((<$>))
 
---import Control.Monad.ST.Unsafe (unsafeIOToST)
+import Control.Monad.ST.Unsafe (unsafeIOToST)
 
 type STM s = STUArray s (Int,Int)
 type STV s = STUArray s Int
+
+updateArray :: (MArray a e m,Ix i) => a i e -> i -> (e -> m e) -> m ()
+updateArray a i f = readArray a i >>= f >>= writeArray a i
 
 decoder_mutation :: Int -> M Bool -> V Double -> (Int,V Bool)
 decoder_mutation maxIterations h lam0
@@ -25,10 +28,6 @@ decoder_mutation maxIterations h lam0
   | otherwise = runST $ do
     lam <- thaw lam0
     eta <- thaw (amap (const 0) h)
-    debug $ forEtaRow $ \row -> do
-      putStr "eta cols "
-      forEtaCol row $ \col -> putStr (show col) >> putStr " "
-      putStrLn ""
     n <- go 0 lam eta
     -- unsafeFreeze is safe because lam dies
     (,) n . amap (>0) . trim <$> unsafeFreeze lam where
@@ -44,8 +43,8 @@ decoder_mutation maxIterations h lam0
   trim :: V Double -> V Double
   trim = listArray (1,numCol-numRow) . elems
 
-  forEta :: Monad m => (Int -> Int -> m ()) -> m ()
-  forEta f = mapM_ (\idx -> when (h!idx) $ uncurry f idx) $ range hBounds
+  forEta :: Monad m => ((Int,Int) -> m ()) -> m ()
+  forEta f = mapM_ (\idx -> when (h!idx) $ f idx) $ range hBounds
 
   forEtaRow :: Monad m => (Int -> m ()) -> m ()
   forEtaRow f = mapM_ f $ range (rBase,rTop)
@@ -53,21 +52,21 @@ decoder_mutation maxIterations h lam0
   forEtaCol :: Monad m => Int -> (Int -> m ()) -> m ()
   forEtaCol row f = mapM_ (\col -> when (h!(row,col)) $ f col) $ range (cBase,cTop)
 
-  forEtaCol' :: Monad m => Int -> (Int -> Bool -> m ()) -> m ()
-  forEtaCol' row f = mapM_ (\col -> f col (h!(row,col))) $ range (cBase,cTop)
-
   foldlEtaCol :: Monad m => acc -> Int -> (acc -> Int -> m acc) -> m acc
   foldlEtaCol z row f = go (range (cBase,cTop)) z where
     go !cols !acc = case cols of
       [] -> return acc
       (col:cols) -> (if h!(row,col) then f acc col else return acc) >>= go cols
 
---  debug = unsafeIOToST -- switch to the bottom one to enable debugging
-  debug :: IO () -> ST s ()
-  debug = const (return ())
-
   forLamCol :: Monad m => (Int -> m ()) -> m ()
   forLamCol f = mapM_ f (range lamBounds)
+
+  colEtaToLam :: Int -> Int
+  colEtaToLam col = col-cBase+lamBase
+
+{-  debug = unsafeIOToST -- switch to the bottom one to enable debugging
+  debug :: IO () -> ST s ()
+  debug = const (return ())
 
   rnd :: Double -> Double
   rnd d = fromIntegral (round (d * 1000.0) :: Int) / 1000.0
@@ -78,30 +77,21 @@ decoder_mutation maxIterations h lam0
       pad t = putStr $ if len < 7 then replicate (7 - len) ' ' ++ t else t
         where len = length t
 
+  forEtaCol' :: Monad m => Int -> (Int -> Bool -> m ()) -> m ()
+  forEtaCol' row f = mapM_ (\col -> f col (h!(row,col))) $ range (cBase,cTop)
+
   dumpEta eta s row = (debug (putStr s >> putStr " ") >>) $ (>> debug (putStrLn "")) $
     forEtaCol' row $ \col enabled ->
       if not enabled then debug $ putStr7 "" >> putStr " "
       else readArray eta (row,col) >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
-
+-}
   go :: Int -> STV s Double -> STM s Double -> ST s Int
   go !n !lam !eta = if n >= maxIterations then return n else do
 --    unsafeIOToST $ putStr "iteration " >> print n
 
-    debug $ putStrLn "---"
-
-    debug $ putStr "lam "
-    forLamCol $ \col -> readArray lam col >>= \x -> debug $ putStr7 (show (rnd x)) >> putStr " "
-    debug $ putStrLn ""
-    debug $ putStrLn ""
-    forEtaRow $ dumpEta eta "eta"
-
     -- eta[r,c] := eta[r,c] - lam[c]
-    forEta $ \row col -> (>>= writeArray eta (row,col)) $
-                         (-) <$> readArray eta (row,col) <*> readArray lam (col-cBase+lamBase)
-
-    debug $ putStrLn ""
-    debug $ putStrLn ""
-    forEtaRow $ dumpEta eta "e-l"
+    forEta $ \idx@(_,col) ->
+      updateArray eta idx $ \e -> (e-) <$> readArray lam (colEtaToLam col)
 
     -- lam[c] := lam0[c]   -- is there a bulk operation for this?
     forLamCol $ \col -> writeArray lam col $ lam0!col
@@ -113,11 +103,10 @@ decoder_mutation maxIterations h lam0
       -- at each element
 
       -- collect the minimum and the next-most minimum in the whole row
+      -- NB assumes each row of eta & h has at least two ones
       (sign,TwoMD the_min the_2nd_min) <- do
         let snoc (sign,md) x = (sign * signum x,minMD md $ abs x)
         foldlEtaCol (1,ZeroMD) row $ \mins col -> snoc mins <$> readArray eta (row,col)
-
-      debug $ print (sign,the_min,the_2nd_min)
 
       forEtaCol row $ \col -> do
         etav <- readArray eta (row,col)
@@ -126,7 +115,8 @@ decoder_mutation maxIterations h lam0
                     then the_2nd_min else the_min
         writeArray eta (row,col) etav'
 
-{-    -- this, on the other hand, is the straight-forward way. (We might
+{-
+      -- this, on the other hand, is the straight-forward way. (We might
       -- optimize to add the_mins array as a loop argument)
 
       the_mins <- newArray (cBase,cTop) 0
@@ -143,24 +133,20 @@ decoder_mutation maxIterations h lam0
         writeArray eta (row,col) etav'
 -}
 
-
-
         -- add the new eta value to lam
-        lamv <- readArray lam (col-cBase+lamBase)
-        let lamv' = lamv+etav'
-        writeArray lam (col-cBase+lamBase) lamv'
-
---      dumpEta eta "eta'" row
+        updateArray lam (colEtaToLam col) $ return . (+etav')
 
     -- unsafeFreeze is safe because lam' doesn't survive this iteration
     parity <- unsafeFreeze lam >>= \lam' -> do
       let cHat = amap (>0) lam'
-      let x = multVM "decode" cHat (transpose h)
---      debug $ putStr "cHat " >> print (elems cHat)
---      debug $ putStr "x    " >> print (elems x)
---      debug $ putStr "lam  " >> print (elems $ lam' `asTypeOf` lam0)
-      return $ x == listArray (rBase,rTop) (repeat False)
+      let x = multMV "decode" h cHat
+--      unsafeIOToST $ putStr "cHat " >> showV cHat
+--      unsafeIOToST $ putStr "x   " >> showV x
+      unsafeIOToST $ print $ let es = elems x in (length es,length (filter id es))
+      return $ not $ or $ elems x -- x is all zeroes
     if parity then return n else go (n+1) lam eta
+
+--  showV = putStrLn . map (\b -> if b then '1' else '0') . elems
 
 {-# INLINE min_dagger #-}
 min_dagger x y = signum x * signum y * min (abs x) (abs y)

@@ -4,6 +4,7 @@ module ECC where
 
 import System.Random.MWC
 import Control.Monad.Primitive (PrimMonad, PrimState)
+import Control.Monad (when)
 import Control.Monad.Trans (MonadIO(liftIO))
 
 type FrameSize = Int
@@ -48,6 +49,7 @@ runECC ecc count = run 0 0
         debug ecc $ showV ecc code2
 
         bitErrors <- check ecc code0 code2
+        debug ecc $ "errors " ++ show bitErrors
         run (n+1) (errs + toInteger bitErrors)
 
 
