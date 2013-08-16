@@ -91,8 +91,8 @@ mkECCId frameSize = create >>= \gen -> return $ ECC
   , showWBool = show
   }
 
-main :: IO ()
-main = mainWith (mkECCId 32)
+--main :: IO ()
+--main = mainWith (mkECCId 32)
 
 mainWith :: MonadIO m => m (ECC m v w d x) -> m ()
 mainWith mkECC = do

@@ -10,6 +10,7 @@ import Data.Array.Base (thaw,unsafeFreeze)
 import Data.Array.Unboxed ((!),Ix(..))
 import Data.Array.ST (STUArray,readArray,writeArray)
 import Control.Monad.ST (ST,runST)
+
 import Control.Monad (when)
 import Control.Applicative ((<$>),(<*>))
 
@@ -84,6 +85,8 @@ decoder_mutation maxIterations h lam0
 
   go :: Int -> STV s Double -> STM s Double -> ST s Int
   go !n !lam !eta = if n >= maxIterations then return n else do
+--    unsafeIOToST $ putStr "iteration " >> print n
+
     debug $ putStrLn "---"
 
     debug $ putStr "lam "
@@ -152,7 +155,7 @@ decoder_mutation maxIterations h lam0
     -- unsafeFreeze is safe because lam' doesn't survive this iteration
     parity <- unsafeFreeze lam >>= \lam' -> do
       let cHat = amap (>0) lam'
-      let x = multVM cHat (transpose h)
+      let x = multVM "decode" cHat (transpose h)
 --      debug $ putStr "cHat " >> print (elems cHat)
 --      debug $ putStr "x    " >> print (elems x)
 --      debug $ putStr "lam  " >> print (elems $ lam' `asTypeOf` lam0)

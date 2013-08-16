@@ -40,15 +40,15 @@ instance Mult Double Double where multE = (*)
 instance Add  Double Double where addE  = (+)
 instance Zero Double        where zeroE = 0
 
-{-# SPECIALISE multVM :: V Bool   -> M Bool   -> V Bool   #-}
-{-# SPECIALISE multVM :: V Double -> M Double -> V Double #-}
+{-# SPECIALISE multVM :: String -> V Bool   -> M Bool   -> V Bool   #-}
+{-# SPECIALISE multVM :: String -> V Double -> M Double -> V Double #-}
 
 -- | Multiply vector by a matrix.
 multVM :: (IArray UArray a,IArray UArray b,IArray UArray c
           ,Mult a b,Add (Mult_Result a b) c,Zero c) =>
-  V a -> M b -> V c
-multVM v m
-  | len/=numRow = error $ "Haskell.Encode.multVM: bad dimensions, " ++ show vBounds ++ " " ++ show mBounds
+  String -> V a -> M b -> V c
+multVM s v m
+  | len/=numRow = error $ "Haskell.Encode.multVM -- " ++ s ++ " -- bad dimensions, " ++ show vBounds ++ " " ++ show mBounds
   | otherwise = listArray (cBase,cTop) $ go vBase rBase cBase zeroE where
 
   !len = rangeSize vBounds
@@ -63,7 +63,8 @@ multVM v m
   -- (this is ripe for fusion with listArray -- I don't know to what extent
   -- that already happens)
   go !iv !row !col !acc
-    | row>rTop = acc : if col==cTop then [] else go vBase rBase (col+1) zeroE
+    | col>cTop = []
+    | row>rTop = acc : go vBase rBase (col+1) zeroE
     | otherwise = let !o1 = v!iv
                       !o2 = m!(row,col)
                       !s  = multE o1 o2

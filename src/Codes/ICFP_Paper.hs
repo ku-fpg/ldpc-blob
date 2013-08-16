@@ -7,11 +7,30 @@ import Data.ListMatrix
 
 import GHC.TypeLits
 
-g_4096_7168 :: ListMatrix Bool
-g_4096_7168 = expand g_4096_7168_compact
+import System.IO.Unsafe (unsafePerformIO)
 
-g_4096_7168_compact :: ListMatrix (Maybe (Fin 256))
-g_4096_7168_compact = fmap cleanup $ listMatrix
+h_4096_7168 :: ListMatrix Bool
+h_4096_7168 = expand h_4096_7168_compact
+
+-- this g has a lot more ones in it than h does
+g_4096_7168 :: ListMatrix Bool
+g_4096_7168 = ListMatrix $ map (go 1) ones where
+  ones :: [[Int]]
+  ones = unsafePerformIO $ do
+    x <- (map (map read . words) . lines) `fmap` readFile "Codes/G.ones"
+    let go1 [] = ()
+        go1 (x:xs) = x `seq` go1 xs
+        go2 [] = ()
+        go2 (x:xs) = go1 x `seq` go2 xs
+    go2 x `seq` putStrLn "Done reading g"
+    return x
+
+  go i [] = replicate (7169 - i) False
+  go i s@(one:ones) = hit : go (i+1) (if hit then ones else s)
+    where hit = i == one
+
+h_4096_7168_compact :: ListMatrix (Maybe (Fin 256))
+h_4096_7168_compact = fmap cleanup $ listMatrix
   [ [ nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, 0  , nul, nul, nul, nul, nul, nul, nul, 0  , nul, nul, 160 ]
   , [ nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, 0  , nul, nul, nul, nul, nul, nul, 0  , 0  , nul, nul ]
   , [ nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, nul, 0  , nul, nul, nul, nul, nul, nul, 0  , 0  , nul ]
